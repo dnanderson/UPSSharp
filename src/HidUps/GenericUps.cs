@@ -241,7 +241,7 @@ namespace HidUps
         private bool SetValue(UpsUsage usage, int logicalValue)
         {
             if (!_usageMap.TryGetValue(usage, out var mappedUsage)) { return false; }
-            
+
             var report = mappedUsage.Report;
             var dataItem = mappedUsage.DataItem;
 
@@ -257,8 +257,9 @@ namespace HidUps
             using (stream)
             {
                 stream.WriteTimeout = 2000;
-                var buffer = report.CreateBuffer();
-                
+                var buffer = new byte[report.Length];
+                buffer[0] = report.ReportID;
+
                 // Write our desired value into the buffer at the correct location.
                 dataItem.WriteLogical(buffer, mappedUsage.DataItemBitOffset, 0, logicalValue);
 
