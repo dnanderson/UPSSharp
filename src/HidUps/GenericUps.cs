@@ -300,24 +300,25 @@ namespace HidUps
                 return null;
             }
 
-            // This block performs the scaling from the raw logical value to a real-world physical value,
-            // using the scaling information provided in the HID report descriptor.
-            // HidSharp's DataItem class automatically parses UnitExponent and Physical Min/Max,
-            // exposing them through the pre-scaled PhysicalMinimum and PhysicalRange properties.
-            
+            // Manually perform the scaling from the raw logical value to a real-world physical value.
             double logicalRange = dataItem.LogicalMaximum - dataItem.LogicalMinimum;
-            
+            double rawPhysicalRange = dataItem.RawPhysicalMaximum - dataItem.RawPhysicalMinimum;
+
             // If logical range is zero, avoid division by zero. This can happen for single-value items.
             if (logicalRange == 0)
             {
-                return dataItem.PhysicalMinimum;
+                // The physical value is just the minimum, scaled by the exponent.
+                return dataItem.RawPhysicalMinimum * Math.Pow(10, dataItem.UnitExponent);
             }
             
-            // Linearly scale the logical value to the physical range.
-            double scaledValue = dataItem.PhysicalMinimum + 
-                (((double)logicalValue - dataItem.LogicalMinimum) * dataItem.PhysicalRange / logicalRange);
+            // 1. Linearly scale the logical value to the raw physical range (without unit exponent).
+            double rawScaledValue = dataItem.RawPhysicalMinimum +
+                               (((double)logicalValue - dataItem.LogicalMinimum) * rawPhysicalRange / logicalRange);
 
-            return scaledValue;
+            // 2. Apply the unit exponent to the final scaled value.
+            double finalValue = rawScaledValue * Math.Pow(10, dataItem.UnitExponent);
+
+            return finalValue;
         }
 
         private bool? GetFlag(UpsUsage usage)
