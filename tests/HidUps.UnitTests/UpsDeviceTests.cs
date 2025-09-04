@@ -1,4 +1,5 @@
 using HidUps;
+using System.Collections.Generic;
 using Xunit;
 
 namespace HidUps.UnitTests;
@@ -6,10 +7,9 @@ namespace HidUps.UnitTests;
 public class UpsDeviceTests
 {
     [Fact]
-    public void GetDeviceStatus_ShouldReturnString()
+    public void FindUpsDevices_ShouldReturnIEnumerableOfUps()
     {
-        var upsDevice = new UpsDevice();
-        var status = upsDevice.GetDeviceStatus();
-        Assert.IsType<string>(status);
+        var devices = UpsDevice.FindUpsDevices();
+        Assert.IsAssignableFrom<IEnumerable<Ups>>(devices);
     }
 }
