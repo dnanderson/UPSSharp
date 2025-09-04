@@ -91,10 +91,11 @@ namespace HidUps
                 {
                     var usages = dataItem.Usages.GetAllValues().ToArray();
 
-                    // If the item itself is a bitfield collection, check its children usages
-                    if (dataItem.ElementBits == 1 && dataItem.ElementCount > 1 && usages.Length >= dataItem.ElementCount)
+                    // Case 1: Variable bitfield (one bit per flag).
+                    if (dataItem.IsVariable && dataItem.ElementBits == 1 && dataItem.ElementCount > 1)
                     {
-                        for (int i = 0; i < dataItem.ElementCount; i++)
+                        int count = Math.Min(dataItem.ElementCount, usages.Length);
+                        for (int i = 0; i < count; i++)
                         {
                             var usage = (UpsUsage)usages[i];
                             if (!_usageMap.ContainsKey(usage))
@@ -103,13 +104,18 @@ namespace HidUps
                             }
                         }
                     }
-                    // Handle scalar values
-                    else if (usages.Length > 0)
+                    // Case 2: Scalar value or an Array of states.
+                    else
                     {
-                        var usage = (UpsUsage)usages[0];
-                        if (!_usageMap.ContainsKey(usage))
+                        // Map every possible usage associated with this item.
+                        // For scalars, it will be one. For arrays, it will be all possible states.
+                        foreach(var usageValue in usages)
                         {
-                            _usageMap[usage] = new MappedUsage(report, dataItem, currentBitOffset);
+                            var usage = (UpsUsage)usageValue;
+                            if (!_usageMap.ContainsKey(usage))
+                            {
+                                 _usageMap[usage] = new MappedUsage(report, dataItem, currentBitOffset);
+                            }
                         }
                     }
                     currentBitOffset += dataItem.TotalBits;
@@ -125,7 +131,7 @@ namespace HidUps
         public string SerialNumber => _device.GetSerialNumber();
 
         // --- Status Properties ---
-        public bool IsOnBattery => GetFlag(UpsUsage.AcPresent) == false;
+        public bool? IsOnBattery => GetFlag(UpsUsage.AcPresent) == false;
         public bool? IsCharging => GetFlag(UpsUsage.Charging);
         public bool? IsDischarging => GetFlag(UpsUsage.Discharging);
         public bool? IsFullyCharged => GetFlag(UpsUsage.FullyCharged);
@@ -198,15 +204,58 @@ namespace HidUps
 
         private bool? GetFlag(UpsUsage usage)
         {
-            if (!_usageMap.TryGetValue(usage, out var mappedUsage) || !mappedUsage.BitIndex.HasValue) { return null; }
+            if (!_usageMap.TryGetValue(usage, out var mappedUsage)) { return null; }
 
             var buffer = GetReport(mappedUsage);
             if (buffer == null) { return null; }
 
-            uint rawValue = mappedUsage.DataItem.ReadRaw(buffer, mappedUsage.DataItemBitOffset, mappedUsage.BitIndex.Value);
-            return rawValue == 1;
+            var dataItem = mappedUsage.DataItem;
+
+            // Case 1: Variable bitfield. Each bit is a flag.
+            if (dataItem.IsVariable && mappedUsage.BitIndex.HasValue)
+            {
+                if (mappedUsage.BitIndex.Value >= dataItem.ElementCount) return null;
+                
+                // The elementIndex for ReadRaw is the bit index.
+                uint rawValue = dataItem.ReadRaw(buffer, mappedUsage.DataItemBitOffset, mappedUsage.BitIndex.Value);
+                return rawValue == 1;
+            }
+
+            // Case 2: Array of selectors. The report contains the logical value(s) of active state(s).
+            if (dataItem.IsArray)
+            {
+                // Find the index corresponding to our target usage in the DataItem's usage list.
+                if (dataItem.Usages.TryGetIndexFromValue((uint)usage, out int targetUsageIndex))
+                {
+                    // The logical value reported for an array usage is its index + logical minimum.
+                    int targetLogicalValue = targetUsageIndex + dataItem.LogicalMinimum;
+
+                    // Check all elements reported by this DataItem.
+                    for (int i = 0; i < dataItem.ElementCount; i++)
+                    {
+                        int logicalValueInReport = dataItem.ReadLogical(buffer, mappedUsage.DataItemBitOffset, i);
+                        if (logicalValueInReport == targetLogicalValue)
+                        {
+                            return true; // Our target usage/state is active.
+                        }
+                    }
+                }
+                return false; // The flag is not active.
+            }
+
+            // Case 3: Simple boolean in a scalar value.
+            if (dataItem.IsVariable && !mappedUsage.BitIndex.HasValue)
+            {
+                var logicalValue = dataItem.ReadLogical(buffer, mappedUsage.DataItemBitOffset, 0);
+                // A simple boolean is typically 1 for true, 0 for false.
+                if (logicalValue == dataItem.LogicalMaximum) return true;
+                if (logicalValue == dataItem.LogicalMinimum) return false;
+            }
+
+            return null; // Not a recognized flag type or unable to parse.
         }
 
         #endregion
     }
 }
+
