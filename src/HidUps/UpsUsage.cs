@@ -15,6 +15,7 @@ namespace HidUps
         ApparentPower = 0x00840033,
         ActivePower = 0x00840034,
         PercentLoad = 0x00840035,
+        Test = 0x00840058,
         DelayBeforeShutdown = 0x00840057,
         ShutdownImminent = 0x00840069,
         Overload = 0x00840065,
@@ -32,3 +33,4 @@ namespace HidUps
         AcPresent = 0x008500D0,
     }
 }
+

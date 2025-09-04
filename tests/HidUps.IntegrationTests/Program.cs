@@ -1,6 +1,7 @@
 using HidUps;
 using System;
 using System.Linq;
+using System.Threading;
 
 Console.WriteLine("Finding generic UPS devices...");
 var upsDevices = GenericUps.FindAll().ToList();
@@ -31,13 +32,37 @@ if (upsDevices.Any())
         Console.WriteLine("Flags:");
         
         // --- Status Flags ---
-        Console.WriteLine($"  On Battery: {ups.IsOnBattery.ToString() ?? "N/A"}");
+        Console.WriteLine($"  On Battery: {ups.IsOnBattery?.ToString() ?? "N/A"}");
         Console.WriteLine($"  Charging: {ups.IsCharging?.ToString() ?? "N/A"}");
         Console.WriteLine($"  Discharging: {ups.IsDischarging?.ToString() ?? "N/A"}");
         Console.WriteLine($"  Fully Charged: {ups.IsFullyCharged?.ToString() ?? "N/A"}");
         Console.WriteLine($"  Needs Replacement: {ups.NeedsReplacement?.ToString() ?? "N/A"}");
         Console.WriteLine($"  Overloaded: {ups.IsOverloaded?.ToString() ?? "N/A"}");
         Console.WriteLine($"  Shutdown Imminent: {ups.IsShutdownImminent?.ToString() ?? "N/A"}");
+        Console.WriteLine();
+
+        // --- Test Functionality ---
+        Console.WriteLine("Running self-test...");
+        if (ups.RunQuickTest())
+        {
+            Console.WriteLine("  Test command sent successfully.");
+            UpsTestResult? testResult;
+            int attempts = 0;
+            do
+            {
+                Thread.Sleep(3000); // Wait 2 seconds between checks
+                testResult = ups.GetTestResult();
+                Console.WriteLine($"  Current test status: {testResult?.ToString() ?? "Unknown"}");
+                attempts++;
+            } while (attempts < 10 && testResult == UpsTestResult.InProgress);
+
+            Console.WriteLine($"  Final test result: {testResult?.ToString() ?? "Unknown"}");
+        }
+        else
+        {
+            Console.WriteLine("  Failed to send test command. This feature may not be supported.");
+        }
+
 
         Console.WriteLine(new string('-', 30));
     }
@@ -46,3 +71,4 @@ else
 {
     Console.WriteLine("No generic UPS devices found.");
 }
+

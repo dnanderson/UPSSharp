@@ -6,6 +6,28 @@ using System.Linq;
 namespace HidUps
 {
     /// <summary>
+    /// Represents a command to be sent to the UPS Test usage.
+    /// </summary>
+    public enum UpsTestCommand
+    {
+        QuickTest = 1
+    }
+
+    /// <summary>
+    /// Represents the result of a UPS test.
+    /// </summary>
+    public enum UpsTestResult
+    {
+        NoTestInitiated = 0,
+        DoneAndPassed = 1,
+        DoneAndWarning = 2,
+        DoneAndError = 3,
+        Aborted = 4,
+        InProgress = 5
+    }
+
+
+    /// <summary>
     /// Represents a generic, model-agnostic HID UPS device.
     /// It discovers features at runtime by parsing the HID Report Descriptor.
     /// </summary>
@@ -82,7 +104,9 @@ namespace HidUps
         /// </summary>
         private void ParseAndMapUsages()
         {
-            var reports = _reportDescriptor.FeatureReports.Concat(_reportDescriptor.InputReports);
+            var reports = _reportDescriptor.FeatureReports
+                                           .Concat(_reportDescriptor.InputReports)
+                                           .Concat(_reportDescriptor.OutputReports);
 
             foreach (var report in reports)
             {
@@ -109,12 +133,12 @@ namespace HidUps
                     {
                         // Map every possible usage associated with this item.
                         // For scalars, it will be one. For arrays, it will be all possible states.
-                        foreach(var usageValue in usages)
+                        foreach (var usageValue in usages)
                         {
                             var usage = (UpsUsage)usageValue;
                             if (!_usageMap.ContainsKey(usage))
                             {
-                                 _usageMap[usage] = new MappedUsage(report, dataItem, currentBitOffset);
+                                _usageMap[usage] = new MappedUsage(report, dataItem, currentBitOffset);
                             }
                         }
                     }
@@ -147,6 +171,29 @@ namespace HidUps
         public double? InputFrequency => GetPhysicalValue(UpsUsage.Frequency);
         public double? OutputActivePowerWatts => GetPhysicalValue(UpsUsage.ActivePower);
         public double? OutputApparentPowerVA => GetPhysicalValue(UpsUsage.ApparentPower);
+
+        #endregion
+
+        #region Public Methods
+
+        /// <summary>
+        /// Initiates a quick self-test on the UPS.
+        /// </summary>
+        /// <returns>True if the command was sent successfully, otherwise false.</returns>
+        public bool RunQuickTest()
+        {
+            return SetValue(UpsUsage.Test, (int)UpsTestCommand.QuickTest);
+        }
+
+        /// <summary>
+        /// Gets the current status of a self-test.
+        /// </summary>
+        /// <returns>The current test result, or null if the status cannot be retrieved.</returns>
+        public UpsTestResult? GetTestResult()
+        {
+            var value = GetPhysicalValue(UpsUsage.Test);
+            return value.HasValue ? (UpsTestResult?)(int)value.Value : null;
+        }
 
         #endregion
 
@@ -191,6 +238,50 @@ namespace HidUps
             }
         }
 
+        private bool SetValue(UpsUsage usage, int logicalValue)
+        {
+            if (!_usageMap.TryGetValue(usage, out var mappedUsage)) { return false; }
+            
+            var report = mappedUsage.Report;
+            var dataItem = mappedUsage.DataItem;
+
+            if (report.ReportType != HidSharp.Reports.ReportType.Feature &&
+                report.ReportType != HidSharp.Reports.ReportType.Output)
+            {
+                // Only Feature and Output reports are writable.
+                return false;
+            }
+
+            if (!_device.TryOpen(out var stream)) { return false; }
+
+            using (stream)
+            {
+                stream.WriteTimeout = 2000;
+                var buffer = report.CreateBuffer();
+                
+                // Write our desired value into the buffer at the correct location.
+                dataItem.WriteLogical(buffer, mappedUsage.DataItemBitOffset, 0, logicalValue);
+
+                try
+                {
+                    if (report.ReportType == HidSharp.Reports.ReportType.Feature)
+                    {
+                        stream.SetFeature(buffer);
+                    }
+                    else // Output Report
+                    {
+                        stream.Write(buffer);
+                    }
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
+
         private double? GetPhysicalValue(UpsUsage usage)
         {
             if (!_usageMap.TryGetValue(usage, out var mappedUsage)) { return null; }
@@ -215,7 +306,7 @@ namespace HidUps
             if (dataItem.IsVariable && mappedUsage.BitIndex.HasValue)
             {
                 if (mappedUsage.BitIndex.Value >= dataItem.ElementCount) return null;
-                
+
                 // The elementIndex for ReadRaw is the bit index.
                 uint rawValue = dataItem.ReadRaw(buffer, mappedUsage.DataItemBitOffset, mappedUsage.BitIndex.Value);
                 return rawValue == 1;
