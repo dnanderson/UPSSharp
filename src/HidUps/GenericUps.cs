@@ -294,31 +294,12 @@ namespace HidUps
             var dataItem = mappedUsage.DataItem;
             var logicalValue = dataItem.ReadLogical(buffer, mappedUsage.DataItemBitOffset, 0);
 
-            // A logical value outside the defined range is considered a Null-state value.
             if (DataConvert.IsLogicalOutOfRange(dataItem, logicalValue))
             {
                 return null;
             }
 
-            // Manually perform the scaling from the raw logical value to a real-world physical value.
-            double logicalRange = dataItem.LogicalMaximum - dataItem.LogicalMinimum;
-            double rawPhysicalRange = dataItem.RawPhysicalMaximum - dataItem.RawPhysicalMinimum;
-
-            // If logical range is zero, avoid division by zero. This can happen for single-value items.
-            if (logicalRange == 0)
-            {
-                // The physical value is just the minimum, scaled by the exponent.
-                return dataItem.RawPhysicalMinimum * Math.Pow(10, dataItem.UnitExponent);
-            }
-            
-            // 1. Linearly scale the logical value to the raw physical range (without unit exponent).
-            double rawScaledValue = dataItem.RawPhysicalMinimum +
-                               (((double)logicalValue - dataItem.LogicalMinimum) * rawPhysicalRange / logicalRange);
-
-            // 2. Apply the unit exponent to the final scaled value.
-            double finalValue = rawScaledValue * Math.Pow(10, dataItem.UnitExponent);
-
-            return finalValue;
+            return DataConvert.PhysicalFromLogical(dataItem, logicalValue);
         }
 
         private bool? GetFlag(UpsUsage usage)
