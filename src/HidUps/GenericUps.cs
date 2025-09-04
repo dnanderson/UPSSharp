@@ -1,5 +1,6 @@
 using HidSharp;
 using HidSharp.Reports;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -290,8 +291,33 @@ namespace HidUps
             var buffer = GetReport(mappedUsage);
             if (buffer == null) { return null; }
 
-            var logicalValue = mappedUsage.DataItem.ReadLogical(buffer, mappedUsage.DataItemBitOffset, 0);
-            return DataConvert.PhysicalFromLogical(mappedUsage.DataItem, logicalValue);
+            var dataItem = mappedUsage.DataItem;
+            var logicalValue = dataItem.ReadLogical(buffer, mappedUsage.DataItemBitOffset, 0);
+
+            // A logical value outside the defined range is considered a Null-state value.
+            if (DataConvert.IsLogicalOutOfRange(dataItem, logicalValue))
+            {
+                return null;
+            }
+
+            // This block performs the scaling from the raw logical value to a real-world physical value,
+            // using the scaling information provided in the HID report descriptor.
+            // HidSharp's DataItem class automatically parses UnitExponent and Physical Min/Max,
+            // exposing them through the pre-scaled PhysicalMinimum and PhysicalRange properties.
+            
+            double logicalRange = dataItem.LogicalMaximum - dataItem.LogicalMinimum;
+            
+            // If logical range is zero, avoid division by zero. This can happen for single-value items.
+            if (logicalRange == 0)
+            {
+                return dataItem.PhysicalMinimum;
+            }
+            
+            // Linearly scale the logical value to the physical range.
+            double scaledValue = dataItem.PhysicalMinimum + 
+                (((double)logicalValue - dataItem.LogicalMinimum) * dataItem.PhysicalRange / logicalRange);
+
+            return scaledValue;
         }
 
         private bool? GetFlag(UpsUsage usage)
