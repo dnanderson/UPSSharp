@@ -22,9 +22,12 @@ if (upsDevices.Any())
 
         // --- Value Properties ---
         Console.WriteLine($"  Input Voltage: {ups.InputVoltage?.ToString("F1") ?? "N/A"} V");
+        Console.WriteLine($"  Input Frequency: {ups.InputFrequency?.ToString("F1") ?? "N/A"} Hz");
+        Console.WriteLine($"  Output Voltage: {ups.OutputVoltage?.ToString("F1") ?? "N/A"} V");
         Console.WriteLine($"  Percent Load: {ups.PercentLoad?.ToString("F0") ?? "N/A"} %");
         Console.WriteLine($"  Remaining Capacity: {ups.RemainingCapacityPercent?.ToString("F0") ?? "N/A"} %");
         Console.WriteLine($"  Runtime to Empty: {ups.RunTimeToEmptySeconds?.ToString("F0") ?? "N/A"} sec");
+        Console.WriteLine($"  Battery Voltage: {ups.BatteryVoltage?.ToString("F1") ?? "N/A"} V");
         Console.WriteLine($"  Output Power (Active): {ups.OutputActivePowerWatts?.ToString("F0") ?? "N/A"} W");
         Console.WriteLine($"  Output Power (Apparent): {ups.OutputApparentPowerVA?.ToString("F0") ?? "N/A"} VA");
         
