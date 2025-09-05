@@ -467,6 +467,8 @@ namespace HidUps
             }
         }
 
+        #endregion
+
         #region Public Methods
 
         /// <summary>

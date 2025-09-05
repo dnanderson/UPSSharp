@@ -22,7 +22,7 @@ if (upsDevices.Any())
         // Let's dump the report descriptor to understand the structure
         try
         {
-            var device = HidSharp.DeviceList.Local.GetHidDeviceOrNull(ups.DevicePath);
+            var device = HidSharp.DeviceList.Local.GetHidDeviceOrNull(0x09ae);
             if (device != null)
             {
                 var descriptor = device.GetReportDescriptor();
