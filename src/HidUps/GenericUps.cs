@@ -36,7 +36,7 @@ namespace HidUps
     {
         private readonly HidDevice _device;
         private readonly ReportDescriptor _reportDescriptor;
-        private readonly Dictionary<(uint, UpsUsage), MappedUsage> _usageMap;
+        private readonly Dictionary<UpsUsage, MappedUsage> _usageMap;
 
         /// <summary>
         /// A helper class to store information about a discovered HID usage.
@@ -61,7 +61,7 @@ namespace HidUps
         {
             _device = device;
             _reportDescriptor = device.GetReportDescriptor();
-            _usageMap = new Dictionary<(uint, UpsUsage), MappedUsage>();
+            _usageMap = new Dictionary<UpsUsage, MappedUsage>();
             ParseAndMapUsages();
         }
 
@@ -101,86 +101,50 @@ namespace HidUps
         }
 
         /// <summary>
-        /// Parses the device's report descriptor to map standard UPS usages to their actual reports and data items,
-        /// respecting the collection hierarchy.
+        /// Parses the device's report descriptor to map standard UPS usages to their actual reports and data items.
         /// </summary>
         private void ParseAndMapUsages()
         {
-            // The top-level DeviceItems are the starting point of the collection hierarchy.
-            foreach (var deviceItem in _reportDescriptor.DeviceItems)
-            {
-                ParseCollection(deviceItem, 0); // Start with a default (0) parent collection usage.
-            }
-        }
-
-        /// <summary>
-        /// Recursively parses a collection and its children to map usages.
-        /// </summary>
-        /// <param name="collection">The collection to parse.</param>
-        /// <param name="parentCollectionUsage">The usage of the parent collection.</param>
-        private void ParseCollection(DeviceItem collection, uint parentCollectionUsage)
-        {
-            // Determine the usage for the current collection. Fall back to the parent's usage if not specified.
-            uint currentCollectionUsage = collection.Usages.GetAllValues().FirstOrDefault();
-            if (currentCollectionUsage == 0)
-            {
-                currentCollectionUsage = parentCollectionUsage;
-            }
-
-            var allReports = _reportDescriptor.FeatureReports
+            var reports = _reportDescriptor.FeatureReports
                                            .Concat(_reportDescriptor.InputReports)
                                            .Concat(_reportDescriptor.OutputReports);
 
-            // Process all data items that are direct children of this collection.
-            foreach (var dataItem in collection.DataItems)
+            foreach (var report in reports)
             {
-                // Find the report this data item belongs to.
-                var report = allReports.FirstOrDefault(r => r.ReportID == dataItem.ReportID);
-                if (report == null) continue;
-
-                // Calculate the bit offset of this data item within its report.
-                int currentBitOffset = 8; // Start after the 8-bit Report ID.
-                foreach (var di in report.DataItems)
+                int currentBitOffset = 8; // Start after the 8-bit Report ID
+                foreach (var dataItem in report.DataItems)
                 {
-                    if (di == dataItem) break;
-                    currentBitOffset += di.TotalBits;
-                }
+                    var usages = dataItem.Usages.GetAllValues().ToArray();
 
-                var usages = dataItem.Usages.GetAllValues().ToArray();
-
-                // Case 1: Variable bitfield (one bit per flag).
-                if (dataItem.IsVariable && dataItem.ElementBits == 1 && dataItem.ElementCount > 1)
-                {
-                    int count = Math.Min(dataItem.ElementCount, usages.Length);
-                    for (int i = 0; i < count; i++)
+                    // Case 1: Variable bitfield (one bit per flag).
+                    if (dataItem.IsVariable && dataItem.ElementBits == 1 && dataItem.ElementCount > 1)
                     {
-                        var usage = (UpsUsage)usages[i];
-                        var key = (currentCollectionUsage, usage);
-                        if (!_usageMap.ContainsKey(key))
+                        int count = Math.Min(dataItem.ElementCount, usages.Length);
+                        for (int i = 0; i < count; i++)
                         {
-                            _usageMap[key] = new MappedUsage(report, dataItem, currentBitOffset, i);
+                            var usage = (UpsUsage)usages[i];
+                            if (!_usageMap.ContainsKey(usage))
+                            {
+                                _usageMap[usage] = new MappedUsage(report, dataItem, currentBitOffset, i);
+                            }
                         }
                     }
-                }
-                // Case 2: Scalar value or an Array of states.
-                else
-                {
-                    foreach (var usageValue in usages)
+                    // Case 2: Scalar value or an Array of states.
+                    else
                     {
-                        var usage = (UpsUsage)usageValue;
-                        var key = (currentCollectionUsage, usage);
-                        if (!_usageMap.ContainsKey(key))
+                        // Map every possible usage associated with this item.
+                        // For scalars, it will be one. For arrays, it will be all possible states.
+                        foreach (var usageValue in usages)
                         {
-                            _usageMap[key] = new MappedUsage(report, dataItem, currentBitOffset);
+                            var usage = (UpsUsage)usageValue;
+                            if (!_usageMap.ContainsKey(usage))
+                            {
+                                _usageMap[usage] = new MappedUsage(report, dataItem, currentBitOffset);
+                            }
                         }
                     }
+                    currentBitOffset += dataItem.TotalBits;
                 }
-            }
-
-            // Recursively parse child collections.
-            foreach (var childCollection in collection.Children)
-            {
-                ParseCollection(childCollection, currentCollectionUsage);
             }
         }
 
@@ -203,14 +167,11 @@ namespace HidUps
         // --- Value Properties ---
         public double? RemainingCapacityPercent => GetPhysicalValue(UpsUsage.RemainingCapacity);
         public double? RunTimeToEmptySeconds => GetPhysicalValue(UpsUsage.RunTimeToEmpty);
-        public double? PercentLoad => GetPhysicalValue(UpsUsage.PercentLoad, (uint)UpsUsage.OutputCollection);
-        public double? InputVoltage => GetPhysicalValue(UpsUsage.Voltage, (uint)UpsUsage.InputCollection);
-        public double? OutputVoltage => GetPhysicalValue(UpsUsage.Voltage, (uint)UpsUsage.OutputCollection);
-        public double? BatteryVoltage => GetPhysicalValue(UpsUsage.Voltage, (uint)UpsUsage.BatteryCollection);
-        public double? InputFrequency => GetPhysicalValue(UpsUsage.Frequency, (uint)UpsUsage.InputCollection);
-        public double? OutputFrequency => GetPhysicalValue(UpsUsage.Frequency, (uint)UpsUsage.OutputCollection);
-        public double? OutputActivePowerWatts => GetPhysicalValue(UpsUsage.ActivePower, (uint)UpsUsage.OutputCollection);
-        public double? OutputApparentPowerVA => GetPhysicalValue(UpsUsage.ApparentPower, (uint)UpsUsage.OutputCollection);
+        public double? PercentLoad => GetPhysicalValue(UpsUsage.PercentLoad);
+        public double? InputVoltage => GetPhysicalValue(UpsUsage.Voltage);
+        public double? InputFrequency => GetPhysicalValue(UpsUsage.Frequency);
+        public double? OutputActivePowerWatts => GetPhysicalValue(UpsUsage.ActivePower);
+        public double? OutputApparentPowerVA => GetPhysicalValue(UpsUsage.ApparentPower);
 
         #endregion
 
@@ -278,20 +239,9 @@ namespace HidUps
             }
         }
 
-        private bool SetValue(UpsUsage usage, int logicalValue, uint? collectionUsage = null)
+        private bool SetValue(UpsUsage usage, int logicalValue)
         {
-            MappedUsage mappedUsage;
-            if (collectionUsage.HasValue)
-            {
-                if (!_usageMap.TryGetValue((collectionUsage.Value, usage), out mappedUsage)) { return false; }
-            }
-            else
-            {
-                // Find first match for the usage, regardless of collection.
-                var mapEntry = _usageMap.FirstOrDefault(kvp => kvp.Key.Item2 == usage);
-                if (mapEntry.Value == null) { return false; }
-                mappedUsage = mapEntry.Value;
-            }
+            if (!_usageMap.TryGetValue(usage, out var mappedUsage)) { return false; }
 
             var report = mappedUsage.Report;
             var dataItem = mappedUsage.DataItem;
@@ -334,20 +284,9 @@ namespace HidUps
         }
 
 
-        private double? GetPhysicalValue(UpsUsage usage, uint? collectionUsage = null)
+        private double? GetPhysicalValue(UpsUsage usage)
         {
-            MappedUsage mappedUsage;
-            if (collectionUsage.HasValue)
-            {
-                if (!_usageMap.TryGetValue((collectionUsage.Value, usage), out mappedUsage)) { return null; }
-            }
-            else
-            {
-                // Find first match for the usage, regardless of collection.
-                var mapEntry = _usageMap.FirstOrDefault(kvp => kvp.Key.Item2 == usage);
-                if (mapEntry.Value == null) { return null; }
-                mappedUsage = mapEntry.Value;
-            }
+            if (!_usageMap.TryGetValue(usage, out var mappedUsage)) { return null; }
 
             var buffer = GetReport(mappedUsage);
             if (buffer == null) { return null; }
@@ -363,20 +302,9 @@ namespace HidUps
             return DataConvert.PhysicalFromLogical(dataItem, logicalValue);
         }
 
-        private bool? GetFlag(UpsUsage usage, uint? collectionUsage = null)
+        private bool? GetFlag(UpsUsage usage)
         {
-            MappedUsage mappedUsage;
-            if (collectionUsage.HasValue)
-            {
-                if (!_usageMap.TryGetValue((collectionUsage.Value, usage), out mappedUsage)) { return null; }
-            }
-            else
-            {
-                // Find first match for the usage, regardless of collection.
-                var mapEntry = _usageMap.FirstOrDefault(kvp => kvp.Key.Item2 == usage);
-                if (mapEntry.Value == null) { return null; }
-                mappedUsage = mapEntry.Value;
-            }
+            if (!_usageMap.TryGetValue(usage, out var mappedUsage)) { return null; }
 
             var buffer = GetReport(mappedUsage);
             if (buffer == null) { return null; }
