@@ -227,7 +227,6 @@ namespace HidUps
         }
         
         public bool? IsShutdownImminent => GetFlag(UpsUsage.ShutdownImminent);
-        // Battery Status - Try both BatterySystem and PowerSummary collections
         public bool? IsCharging => GetFlag(UpsUsage.Charging);
         
         public bool? IsDischarging => GetFlag(UpsUsage.Discharging);
@@ -236,18 +235,15 @@ namespace HidUps
         
         public bool? NeedsReplacement => GetFlag(UpsUsage.NeedReplacement);
 
-        // Output Status - Try PowerConverter collection (Tripplite location)
         public bool? IsOverloaded => GetFlag(UpsUsage.PowerConverterCollection, UpsUsage.Overload);
 
         // --- Value Properties ---
-        // Battery Values - Try multiple collections
         public double? RemainingCapacityPercent => GetPhysicalValue(UpsUsage.RemainingCapacity);
         
         public double? RunTimeToEmptySeconds => GetPhysicalValue(UpsUsage.RunTimeToEmpty);
         
         public double? BatteryVoltage => GetPhysicalValue(UpsUsage.BatteryCollection, UpsUsage.Voltage);
 
-        // Input Values - Try PowerConverter collection first (Tripplite)
         public double? InputVoltage => GetPhysicalValue(UpsUsage.InputCollection, UpsUsage.Voltage);
         
         public double? InputFrequency => GetPhysicalValue(UpsUsage.InputCollection, UpsUsage.Frequency);
