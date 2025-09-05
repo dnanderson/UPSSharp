@@ -28,6 +28,48 @@ namespace HidUps
     }
 
     /// <summary>
+    /// Represents a path through the collection hierarchy to a specific usage.
+    /// </summary>
+    public class CollectionPath
+    {
+        public List<UpsUsage> Path { get; }
+        
+        public CollectionPath(params UpsUsage[] path)
+        {
+            Path = new List<UpsUsage>(path);
+        }
+        
+        public CollectionPath(List<UpsUsage> path)
+        {
+            Path = new List<UpsUsage>(path);
+        }
+        
+        public override bool Equals(object obj)
+        {
+            if (obj is CollectionPath other)
+            {
+                return Path.SequenceEqual(other.Path);
+            }
+            return false;
+        }
+        
+        public override int GetHashCode()
+        {
+            int hash = 17;
+            foreach (var usage in Path)
+            {
+                hash = hash * 31 + usage.GetHashCode();
+            }
+            return hash;
+        }
+        
+        public override string ToString()
+        {
+            return string.Join(" -> ", Path);
+        }
+    }
+
+    /// <summary>
     /// Represents a generic, model-agnostic HID UPS device.
     /// It discovers features at runtime by parsing the HID Report Descriptor.
     /// </summary>
@@ -35,7 +77,7 @@ namespace HidUps
     {
         private readonly IHidDevice _device;
         private readonly ReportDescriptor _reportDescriptor;
-        private readonly Dictionary<(UpsUsage, UpsUsage), MappedUsage> _usageMap;
+        private readonly Dictionary<CollectionPath, MappedUsage> _usageMap;
 
         /// <summary>
         /// A helper class to store information about a discovered HID usage.
@@ -46,12 +88,15 @@ namespace HidUps
             public DataItem DataItem { get; }
             public int DataItemBitOffset { get; }
             public int? BitIndex { get; } // Used for flags within a bitfield
+            public CollectionPath CollectionPath { get; }
 
-            public MappedUsage(Report report, DataItem dataItem, int dataItemBitOffset, int? bitIndex = null)
+            public MappedUsage(Report report, DataItem dataItem, int dataItemBitOffset, 
+                CollectionPath collectionPath, int? bitIndex = null)
             {
                 Report = report;
                 DataItem = dataItem;
                 DataItemBitOffset = dataItemBitOffset;
+                CollectionPath = collectionPath;
                 BitIndex = bitIndex;
             }
         }
@@ -60,7 +105,7 @@ namespace HidUps
         {
             _device = device;
             _reportDescriptor = device.GetReportDescriptor();
-            _usageMap = new Dictionary<(UpsUsage, UpsUsage), MappedUsage>();
+            _usageMap = new Dictionary<CollectionPath, MappedUsage>();
             ParseAndMapUsages();
         }
 
@@ -82,13 +127,13 @@ namespace HidUps
                         var reportDescriptor = d.GetReportDescriptor();
                         return reportDescriptor.DeviceItems.Any(item =>
                             item.Usages.GetAllValues().Any(usage =>
-                                ((usage >> 16) == powerDeviceUsagePage) && (usage == upsUsage || usage == powerSupplyUsage)
+                                ((usage >> 16) == powerDeviceUsagePage) && 
+                                (usage == upsUsage || usage == powerSupplyUsage)
                             )
                         );
                     }
                     catch
                     {
-                        // Can't access descriptor, ignore device.
                         return false;
                     }
                 });
@@ -99,51 +144,29 @@ namespace HidUps
             }
         }
 
-        private UpsUsage GetCollectionUsage(DataItem dataItem)
+        /// <summary>
+        /// Gets the full collection path for a data item by walking up the parent chain.
+        /// </summary>
+        private CollectionPath GetCollectionPath(DataItem dataItem)
         {
+            var path = new List<UpsUsage>();
             var parent = dataItem.ParentItem;
-            var collectionUsages = new List<UpsUsage>();
             
             while (parent != null)
             {
                 if (parent is DescriptorCollectionItem collectionItem)
                 {
-                    // Get the usage of this collection
                     var usage = (UpsUsage)collectionItem.Usages.GetAllValues().FirstOrDefault();
                     if (usage != 0)
                     {
-                        collectionUsages.Add(usage);
-                        
-                        // Check if this is a recognized collection type
-                        if (IsRecognizedCollection(usage))
-                        {
-                            return usage;
-                        }
+                        // Insert at beginning to build path from root to leaf
+                        path.Insert(0, usage);
                     }
                 }
                 parent = parent.ParentItem;
             }
             
-            // If no recognized collection found, check if we're in PowerSummary
-            // Many Tripplite usages are directly in PowerSummary
-            if (collectionUsages.Any(u => u == UpsUsage.PowerSummaryCollection))
-            {
-                return UpsUsage.PowerSummaryCollection;
-            }
-            
-            return 0; // Root/no collection
-        }
-        
-        private bool IsRecognizedCollection(UpsUsage usage)
-        {
-            return usage == UpsUsage.InputCollection ||
-                   usage == UpsUsage.OutputCollection ||
-                   usage == UpsUsage.BatteryCollection ||
-                   usage == UpsUsage.PowerSummaryCollection ||
-                   usage == UpsUsage.BatterySystemCollection ||
-                   usage == UpsUsage.FlowCollection ||
-                   usage == UpsUsage.PowerConverterCollection ||
-                   usage == UpsUsage.OutletSystemCollection;
+            return new CollectionPath(path);
         }
 
         /// <summary>
@@ -157,10 +180,11 @@ namespace HidUps
 
             foreach (var report in reports)
             {
-                int currentBitOffset = _reportDescriptor.ReportsUseID ? 8 : 0; // Start after the Report ID if it exists
+                int currentBitOffset = _reportDescriptor.ReportsUseID ? 8 : 0;
+                
                 foreach (var dataItem in report.DataItems)
                 {
-                    var collectionUsage = GetCollectionUsage(dataItem);
+                    var collectionPath = GetCollectionPath(dataItem);
                     var usages = dataItem.Usages.GetAllValues().ToArray();
 
                     // Case 1: Variable bitfield (one bit per flag).
@@ -170,17 +194,16 @@ namespace HidUps
                         for (int i = 0; i < count; i++)
                         {
                             var usage = (UpsUsage)usages[i];
-                            RegisterUsageMapping(collectionUsage, usage, report, dataItem, currentBitOffset, i);
+                            RegisterUsageMapping(collectionPath, usage, report, dataItem, currentBitOffset, i);
                         }
                     }
                     // Case 2: Scalar value or an Array of states.
                     else
                     {
-                        // Map every possible usage associated with this item.
                         foreach (var usageValue in usages)
                         {
                             var usage = (UpsUsage)usageValue;
-                            RegisterUsageMapping(collectionUsage, usage, report, dataItem, currentBitOffset);
+                            RegisterUsageMapping(collectionPath, usage, report, dataItem, currentBitOffset);
                         }
                     }
                     currentBitOffset += dataItem.TotalBits;
@@ -188,23 +211,59 @@ namespace HidUps
             }
         }
         
-        private void RegisterUsageMapping(UpsUsage collection, UpsUsage usage, Report report, 
-            DataItem dataItem, int bitOffset, int? bitIndex = null)
+        private void RegisterUsageMapping(CollectionPath collectionPath, UpsUsage usage, 
+            Report report, DataItem dataItem, int bitOffset, int? bitIndex = null)
         {
-            // Register with collection context
-            var key = (collection, usage);
-            if (!_usageMap.ContainsKey(key))
+            // Create the full path including the usage itself
+            var fullPath = new CollectionPath(collectionPath.Path.Concat(new[] { usage }).ToList());
+            
+            if (!_usageMap.ContainsKey(fullPath))
             {
-                _usageMap[key] = new MappedUsage(report, dataItem, bitOffset, bitIndex);
+                _usageMap[fullPath] = new MappedUsage(report, dataItem, bitOffset, collectionPath, bitIndex);
+            }
+        }
+
+        /// <summary>
+        /// Finds a usage given a collection path specification.
+        /// </summary>
+        private MappedUsage FindUsage(params UpsUsage[] pathSpec)
+        {
+            var searchPath = new CollectionPath(pathSpec);
+            
+            // Try exact match first
+            if (_usageMap.TryGetValue(searchPath, out var exact))
+            {
+                return exact;
             }
             
-            // Also register without collection context for backwards compatibility
-            // and for cases where the collection might not be properly identified
-            var rootKey = ((UpsUsage)0, usage);
-            if (!_usageMap.ContainsKey(rootKey))
+            // If path spec has at least 2 elements, try finding it as a suffix match
+            // This handles cases where we specify a partial path
+            if (pathSpec.Length >= 2)
             {
-                _usageMap[rootKey] = new MappedUsage(report, dataItem, bitOffset, bitIndex);
+                foreach (var kvp in _usageMap)
+                {
+                    var fullPath = kvp.Key.Path;
+                    if (fullPath.Count >= pathSpec.Length)
+                    {
+                        // Check if the path spec matches the end of the full path
+                        bool matches = true;
+                        for (int i = 0; i < pathSpec.Length; i++)
+                        {
+                            if (fullPath[fullPath.Count - pathSpec.Length + i] != pathSpec[i])
+                            {
+                                matches = false;
+                                break;
+                            }
+                        }
+                        if (matches)
+                        {
+                            return kvp.Value;
+                        }
+                    }
+                }
             }
+            
+            return null;
         }
 
         #region Public Properties
@@ -212,99 +271,110 @@ namespace HidUps
         public string DevicePath => _device.DevicePath;
         public string Manufacturer => _device.GetManufacturer();
         public string ProductName => _device.GetProductName();
-        // This one doesn't seem to want to work?
-        // public string SerialNumber => _device.GetSerialNumber();
 
         // --- Status Properties ---
+        // These use the path-based lookup to find the correct usage in the correct collection
+        
         public bool? IsOnBattery
         {
             get
             {
-                var acPresent = GetFlag(UpsUsage.AcPresent);
+                // AC Present can be in PowerSummary or standalone
+                var acPresent = GetFlag(UpsUsage.PowerSummaryCollection, UpsUsage.PresentStatus, UpsUsage.AcPresent) 
+                             ?? GetFlag(UpsUsage.AcPresent);
                 if (acPresent.HasValue) return !acPresent.Value;
                 return null;
             }
         }
         
-        public bool? IsShutdownImminent => GetFlag(UpsUsage.ShutdownImminent);
-        // Battery Status - Try both BatterySystem and PowerSummary collections
-        public bool? IsCharging => GetFlag(UpsUsage.Charging);
+        public bool? IsShutdownImminent => 
+            GetFlag(UpsUsage.PowerSummaryCollection, UpsUsage.PresentStatus, UpsUsage.ShutdownImminent)
+            ?? GetFlag(UpsUsage.ShutdownImminent);
         
-        public bool? IsDischarging => GetFlag(UpsUsage.Discharging);
+        public bool? IsCharging => 
+            GetFlag(UpsUsage.PowerSummaryCollection, UpsUsage.PresentStatus, UpsUsage.Charging)
+            ?? GetFlag(UpsUsage.BatterySystemCollection, UpsUsage.Charging)
+            ?? GetFlag(UpsUsage.Charging);
         
-        public bool? IsFullyCharged => GetFlag(UpsUsage.FullyCharged);
+        public bool? IsDischarging => 
+            GetFlag(UpsUsage.PowerSummaryCollection, UpsUsage.PresentStatus, UpsUsage.Discharging)
+            ?? GetFlag(UpsUsage.BatterySystemCollection, UpsUsage.Discharging)
+            ?? GetFlag(UpsUsage.Discharging);
         
-        public bool? NeedsReplacement => GetFlag(UpsUsage.NeedReplacement);
+        public bool? IsFullyCharged => 
+            GetFlag(UpsUsage.PowerSummaryCollection, UpsUsage.PresentStatus, UpsUsage.FullyCharged)
+            ?? GetFlag(UpsUsage.FullyCharged);
+        
+        public bool? NeedsReplacement => 
+            GetFlag(UpsUsage.PowerSummaryCollection, UpsUsage.PresentStatus, UpsUsage.NeedReplacement)
+            ?? GetFlag(UpsUsage.BatterySystemCollection, UpsUsage.NeedReplacement)
+            ?? GetFlag(UpsUsage.NeedReplacement);
 
-        // Output Status - Try PowerConverter collection (Tripplite location)
-        public bool? IsOverloaded => GetFlag(UpsUsage.PowerConverterCollection, UpsUsage.Overload);
+        public bool? IsOverloaded => 
+            GetFlag(UpsUsage.PowerConverterCollection, UpsUsage.PresentStatus, UpsUsage.Overload)
+            ?? GetFlag(UpsUsage.PowerConverterCollection, UpsUsage.Overload)
+            ?? GetFlag(UpsUsage.Overload);
 
         // --- Value Properties ---
-        // Battery Values - Try multiple collections
-        public double? RemainingCapacityPercent => GetPhysicalValue(UpsUsage.RemainingCapacity);
         
-        public double? RunTimeToEmptySeconds => GetPhysicalValue(UpsUsage.RunTimeToEmpty);
+        public double? RemainingCapacityPercent => 
+            GetPhysicalValue(UpsUsage.PowerSummaryCollection, UpsUsage.RemainingCapacity)
+            ?? GetPhysicalValue(UpsUsage.BatterySystemCollection, UpsUsage.RemainingCapacity)
+            ?? GetPhysicalValue(UpsUsage.RemainingCapacity);
         
-        public double? BatteryVoltage => GetPhysicalValue(UpsUsage.BatteryCollection, UpsUsage.Voltage);
+        public double? RunTimeToEmptySeconds => 
+            GetPhysicalValue(UpsUsage.PowerSummaryCollection, UpsUsage.RunTimeToEmpty)
+            ?? GetPhysicalValue(UpsUsage.BatterySystemCollection, UpsUsage.RunTimeToEmpty)
+            ?? GetPhysicalValue(UpsUsage.RunTimeToEmpty);
+        
+        public double? BatteryVoltage => 
+            GetPhysicalValue(UpsUsage.BatterySystemCollection, UpsUsage.BatteryCollection, UpsUsage.Voltage)
+            ?? GetPhysicalValue(UpsUsage.BatteryCollection, UpsUsage.Voltage);
 
-        // Input Values - Try PowerConverter collection first (Tripplite)
-        public double? InputVoltage => GetPhysicalValue(UpsUsage.InputCollection, UpsUsage.Voltage);
+        public double? InputVoltage => 
+            GetPhysicalValue(UpsUsage.PowerConverterCollection, UpsUsage.InputCollection, UpsUsage.Voltage)
+            ?? GetPhysicalValue(UpsUsage.FlowCollection, UpsUsage.InputCollection, UpsUsage.Voltage)
+            ?? GetPhysicalValue(UpsUsage.InputCollection, UpsUsage.Voltage);
         
-        public double? InputFrequency => GetPhysicalValue(UpsUsage.InputCollection, UpsUsage.Frequency);
+        public double? InputFrequency => 
+            GetPhysicalValue(UpsUsage.PowerConverterCollection, UpsUsage.InputCollection, UpsUsage.Frequency)
+            ?? GetPhysicalValue(UpsUsage.FlowCollection, UpsUsage.InputCollection, UpsUsage.Frequency)
+            ?? GetPhysicalValue(UpsUsage.InputCollection, UpsUsage.Frequency);
 
-        // Output Values
-        public double? OutputVoltage => GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.Voltage);
-        public double? OutputFrequency => GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.Frequency);
+        public double? OutputVoltage => 
+            GetPhysicalValue(UpsUsage.PowerConverterCollection, UpsUsage.OutputCollection, UpsUsage.Voltage)
+            ?? GetPhysicalValue(UpsUsage.FlowCollection, UpsUsage.OutputCollection, UpsUsage.Voltage)
+            ?? GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.Voltage);
+            
+        public double? OutputFrequency => 
+            GetPhysicalValue(UpsUsage.PowerConverterCollection, UpsUsage.OutputCollection, UpsUsage.Frequency)
+            ?? GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.Frequency);
         
-        public double? PercentLoad => GetPhysicalValue(UpsUsage.OutletSystemCollection, UpsUsage.PercentLoad);
+        public double? PercentLoad => 
+            GetPhysicalValue(UpsUsage.OutletSystemCollection, UpsUsage.PercentLoad)
+            ?? GetPhysicalValue(UpsUsage.PercentLoad);
         
-        public double? OutputActivePowerWatts => GetPhysicalValue(UpsUsage.PowerConverterCollection, UpsUsage.ActivePower);
-        
-        public double? OutputApparentPowerVA => GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.ApparentPower);
+        public double? OutputActivePowerWatts => 
+            GetPhysicalValue(UpsUsage.PowerConverterCollection, UpsUsage.OutputCollection, UpsUsage.ActivePower)
+            ?? GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.ActivePower)
+            ?? GetPhysicalValue(UpsUsage.ActivePower);
 
-        // Add a public method for debugging
+        // Debugging method
         public void DumpMappings()
         {
-            Console.WriteLine("\n=== Usage Mappings ===");
+            Console.WriteLine("\n=== Usage Mappings (Hierarchical) ===");
             
-            // Check for specific important usages
-            var checkUsages = new[] {
-                (UpsUsage.PowerSummaryCollection, UpsUsage.RemainingCapacity, "PowerSummary/RemainingCapacity"),
-                ((UpsUsage)0, UpsUsage.RemainingCapacity, "Root/RemainingCapacity"),
-                (UpsUsage.BatterySystemCollection, UpsUsage.RemainingCapacity, "BatterySystem/RemainingCapacity"),
-                (UpsUsage.PowerSummaryCollection, UpsUsage.RunTimeToEmpty, "PowerSummary/RunTimeToEmpty"),
-                ((UpsUsage)0, UpsUsage.RunTimeToEmpty, "Root/RunTimeToEmpty"),
-                (UpsUsage.PowerSummaryCollection, UpsUsage.PresentStatus, "PowerSummary/PresentStatus"),
-                ((UpsUsage)0, UpsUsage.PresentStatus, "Root/PresentStatus"),
-                (UpsUsage.PowerSummaryCollection, UpsUsage.FullyCharged, "PowerSummary/FullyCharged"),
-                ((UpsUsage)0, UpsUsage.FullyCharged, "Root/FullyCharged"),
-            };
+            var groupedByReport = _usageMap.GroupBy(kvp => kvp.Value.Report.ReportID).OrderBy(g => g.Key);
             
-            foreach (var (collection, usage, name) in checkUsages)
+            foreach (var reportGroup in groupedByReport)
             {
-                if (_usageMap.TryGetValue((collection, usage), out var mapped))
+                Console.WriteLine($"\nReport ID {reportGroup.Key}:");
+                foreach (var kvp in reportGroup.OrderBy(k => k.Key.ToString()))
                 {
-                    Console.WriteLine($"  ✓ {name}: Report {mapped.Report.ReportID}, Type: {mapped.Report.ReportType}, BitOffset: {mapped.DataItemBitOffset}, BitIndex: {mapped.BitIndex}");
+                    var mapped = kvp.Value;
+                    Console.WriteLine($"  {kvp.Key}");
+                    Console.WriteLine($"    Type: {mapped.Report.ReportType}, BitOffset: {mapped.DataItemBitOffset}, BitIndex: {mapped.BitIndex}");
                 }
-                else
-                {
-                    Console.WriteLine($"  ✗ {name}: NOT MAPPED");
-                }
-            }
-            
-            Console.WriteLine("\nAll mapped usages by Report ID:");
-            var byReport = _usageMap.GroupBy(kvp => kvp.Value.Report.ReportID).OrderBy(g => g.Key);
-            foreach (var reportGroup in byReport)
-            {
-                Console.WriteLine($"  Report {reportGroup.Key}:");
-                foreach (var kvp in reportGroup.Take(5)) // Limit output
-                {
-                    var collectionName = kvp.Key.Item1 == 0 ? "Root" : kvp.Key.Item1.ToString();
-                    var usageName = kvp.Key.Item2.ToString();
-                    Console.WriteLine($"    {collectionName}/{usageName}");
-                }
-                if (reportGroup.Count() > 5)
-                    Console.WriteLine($"    ... and {reportGroup.Count() - 5} more");
             }
         }
         
@@ -312,30 +382,16 @@ namespace HidUps
 
         #region Public Methods
 
-        /// <summary>
-        /// Initiates a quick self-test on the UPS.
-        /// </summary>
-        /// <returns>True if the command was sent successfully, otherwise false.</returns>
         public bool RunQuickTest()
         {
-            // Try BatterySystem collection first (Tripplite location)
-            if (SetValue(UpsUsage.BatterySystemCollection, UpsUsage.Test, (int)UpsTestCommand.QuickTest))
-                return true;
-                
-            return SetValue(UpsUsage.Test, (int)UpsTestCommand.QuickTest);
+            return SetValue(new[] { UpsUsage.BatterySystemCollection, UpsUsage.Test }, (int)UpsTestCommand.QuickTest)
+                || SetValue(new[] { UpsUsage.Test }, (int)UpsTestCommand.QuickTest);
         }
 
-        /// <summary>
-        /// Gets the current status of a self-test.
-        /// </summary>
-        /// <returns>The current test result, or null if the status cannot be retrieved.</returns>
         public UpsTestResult? GetTestResult()
         {
-            // Try BatterySystem collection first (Tripplite location)
-            var value = GetPhysicalValue(UpsUsage.BatterySystemCollection, UpsUsage.Test);
-            if (value.HasValue) return (UpsTestResult?)(int)value.Value;
-            
-            value = GetPhysicalValue(UpsUsage.Test);
+            var value = GetPhysicalValue(UpsUsage.BatterySystemCollection, UpsUsage.Test)
+                     ?? GetPhysicalValue(UpsUsage.Test);
             return value.HasValue ? (UpsTestResult?)(int)value.Value : null;
         }
 
@@ -348,7 +404,6 @@ namespace HidUps
             if (mappedUsage.Report.ReportType != HidSharp.Reports.ReportType.Feature &&
                 mappedUsage.Report.ReportType != HidSharp.Reports.ReportType.Input)
             {
-                // Only Feature and Input reports are supported for reading status.
                 return null;
             }
 
@@ -382,11 +437,10 @@ namespace HidUps
             }
         }
 
-        protected bool SetValue(UpsUsage usage, int logicalValue) => SetValue(0, usage, logicalValue);
-
-        protected bool SetValue(UpsUsage collection, UpsUsage usage, int logicalValue)
+        protected bool SetValue(UpsUsage[] pathSpec, int logicalValue)
         {
-            if (!_usageMap.TryGetValue((collection, usage), out var mappedUsage)) { return false; }
+            var mappedUsage = FindUsage(pathSpec);
+            if (mappedUsage == null) return false;
 
             var report = mappedUsage.Report;
             var dataItem = mappedUsage.DataItem;
@@ -394,7 +448,6 @@ namespace HidUps
             if (report.ReportType != HidSharp.Reports.ReportType.Feature &&
                 report.ReportType != HidSharp.Reports.ReportType.Output)
             {
-                // Only Feature and Output reports are writable.
                 return false;
             }
 
@@ -406,7 +459,6 @@ namespace HidUps
                 var buffer = new byte[report.Length];
                 buffer[0] = report.ReportID;
 
-                // Write our desired value into the buffer at the correct location.
                 dataItem.WriteLogical(buffer, mappedUsage.DataItemBitOffset, 0, logicalValue);
 
                 try
@@ -428,14 +480,13 @@ namespace HidUps
             }
         }
 
-        private double? GetPhysicalValue(UpsUsage usage) => GetPhysicalValue(0, usage);
-
-        private double? GetPhysicalValue(UpsUsage collection, UpsUsage usage)
+        private double? GetPhysicalValue(params UpsUsage[] pathSpec)
         {
-            if (!_usageMap.TryGetValue((collection, usage), out var mappedUsage)) { return null; }
+            var mappedUsage = FindUsage(pathSpec);
+            if (mappedUsage == null) return null;
 
             var buffer = GetReport(mappedUsage);
-            if (buffer == null) { return null; }
+            if (buffer == null) return null;
 
             var dataItem = mappedUsage.DataItem;
             var logicalValue = dataItem.ReadLogical(buffer, mappedUsage.DataItemBitOffset, 0);
@@ -448,59 +499,54 @@ namespace HidUps
             return DataConvert.PhysicalFromLogical(dataItem, logicalValue);
         }
 
-        private bool? GetFlag(UpsUsage usage) => GetFlag(0, usage);
-
-        private bool? GetFlag(UpsUsage collection, UpsUsage usage)
+        private bool? GetFlag(params UpsUsage[] pathSpec)
         {
-            if (!_usageMap.TryGetValue((collection, usage), out var mappedUsage)) { return null; }
+            var mappedUsage = FindUsage(pathSpec);
+            if (mappedUsage == null) return null;
 
             var buffer = GetReport(mappedUsage);
-            if (buffer == null) { return null; }
+            if (buffer == null) return null;
 
             var dataItem = mappedUsage.DataItem;
+            var targetUsage = pathSpec[pathSpec.Length - 1];
 
             // Case 1: Variable bitfield. Each bit is a flag.
             if (dataItem.IsVariable && mappedUsage.BitIndex.HasValue)
             {
                 if (mappedUsage.BitIndex.Value >= dataItem.ElementCount) return null;
 
-                // The elementIndex for ReadRaw is the bit index.
                 uint rawValue = dataItem.ReadRaw(buffer, mappedUsage.DataItemBitOffset, mappedUsage.BitIndex.Value);
                 return rawValue == 1;
             }
 
-            // Case 2: Array of selectors. The report contains the logical value(s) of active state(s).
+            // Case 2: Array of selectors.
             if (dataItem.IsArray)
             {
-                // Find the index corresponding to our target usage in the DataItem's usage list.
-                if (dataItem.Usages.TryGetIndexFromValue((uint)usage, out int targetUsageIndex))
+                if (dataItem.Usages.TryGetIndexFromValue((uint)targetUsage, out int targetUsageIndex))
                 {
-                    // The logical value reported for an array usage is its index + logical minimum.
                     int targetLogicalValue = targetUsageIndex + dataItem.LogicalMinimum;
 
-                    // Check all elements reported by this DataItem.
                     for (int i = 0; i < dataItem.ElementCount; i++)
                     {
                         int logicalValueInReport = dataItem.ReadLogical(buffer, mappedUsage.DataItemBitOffset, i);
                         if (logicalValueInReport == targetLogicalValue)
                         {
-                            return true; // Our target usage/state is active.
+                            return true;
                         }
                     }
                 }
-                return false; // The flag is not active.
+                return false;
             }
 
             // Case 3: Simple boolean in a scalar value.
             if (dataItem.IsVariable && !mappedUsage.BitIndex.HasValue)
             {
                 var logicalValue = dataItem.ReadLogical(buffer, mappedUsage.DataItemBitOffset, 0);
-                // A simple boolean is typically 1 for true, 0 for false.
                 if (logicalValue == dataItem.LogicalMaximum) return true;
                 if (logicalValue == dataItem.LogicalMinimum) return false;
             }
 
-            return null; // Not a recognized flag type or unable to parse.
+            return null;
         }
 
         #endregion

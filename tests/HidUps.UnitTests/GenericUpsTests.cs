@@ -216,7 +216,7 @@ namespace HidUps.UnitTests
             {
                 // We are testing if SetValue can correctly find the usage path:
                 // BatteryCollection -> AudibleAlarmControl
-                return SetValue(UpsUsage.BatteryCollection, UpsUsage.AudibleAlarmControl, value);
+                return SetValue(new[] { UpsUsage.BatteryCollection, UpsUsage.AudibleAlarmControl }, value);
             }
         }
 
