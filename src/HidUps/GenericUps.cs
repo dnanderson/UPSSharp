@@ -245,15 +245,16 @@ namespace HidUps
         
         public double? RunTimeToEmptySeconds => GetPhysicalValue(UpsUsage.RunTimeToEmpty);
         
-        public double? BatteryVoltage => GetPhysicalValue(UpsUsage.BatterySystemCollection, UpsUsage.Voltage);
+        public double? BatteryVoltage => GetPhysicalValue(UpsUsage.BatteryCollection, UpsUsage.Voltage);
 
         // Input Values - Try PowerConverter collection first (Tripplite)
-        public double? InputVoltage => GetPhysicalValue(UpsUsage.PowerSummaryCollection, UpsUsage.Voltage);
+        public double? InputVoltage => GetPhysicalValue(UpsUsage.InputCollection, UpsUsage.Voltage);
         
-        public double? InputFrequency => GetPhysicalValue(UpsUsage.PowerConverterCollection, UpsUsage.Frequency);
+        public double? InputFrequency => GetPhysicalValue(UpsUsage.InputCollection, UpsUsage.Frequency);
 
         // Output Values
         public double? OutputVoltage => GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.Voltage);
+        public double? OutputFrequency => GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.Frequency);
         
         public double? PercentLoad => GetPhysicalValue(UpsUsage.OutletSystemCollection, UpsUsage.PercentLoad);
         
