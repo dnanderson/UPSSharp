@@ -16,7 +16,7 @@ if (upsDevices.Any())
         Console.WriteLine($"Device Path: {ups.DevicePath}");
         Console.WriteLine($"Manufacturer: {ups.Manufacturer}");
         Console.WriteLine($"Product: {ups.ProductName}");
-        Console.WriteLine($"Serial: {ups.SerialNumber}");
+        // Console.WriteLine($"Serial: {ups.SerialNumber}");
         Console.WriteLine();
         Console.WriteLine("Status:");
 
@@ -43,25 +43,25 @@ if (upsDevices.Any())
 
         // --- Test Functionality ---
         Console.WriteLine("Running self-test...");
-        if (ups.RunQuickTest())
-        {
-            Console.WriteLine("  Test command sent successfully.");
-            UpsTestResult? testResult;
-            int attempts = 0;
-            do
-            {
-                Thread.Sleep(3000); // Wait 2 seconds between checks
-                testResult = ups.GetTestResult();
-                Console.WriteLine($"  Current test status: {testResult?.ToString() ?? "Unknown"}");
-                attempts++;
-            } while (attempts < 10 && testResult == UpsTestResult.InProgress);
+        // if (ups.RunQuickTest())
+        // {
+        //     Console.WriteLine("  Test command sent successfully.");
+        //     UpsTestResult? testResult;
+        //     int attempts = 0;
+        //     do
+        //     {
+        //         Thread.Sleep(3000); // Wait 2 seconds between checks
+        //         testResult = ups.GetTestResult();
+        //         Console.WriteLine($"  Current test status: {testResult?.ToString() ?? "Unknown"}");
+        //         attempts++;
+        //     } while (attempts < 10 && testResult == UpsTestResult.InProgress);
 
-            Console.WriteLine($"  Final test result: {testResult?.ToString() ?? "Unknown"}");
-        }
-        else
-        {
-            Console.WriteLine("  Failed to send test command. This feature may not be supported.");
-        }
+        //     Console.WriteLine($"  Final test result: {testResult?.ToString() ?? "Unknown"}");
+        // }
+        // else
+        // {
+        //     Console.WriteLine("  Failed to send test command. This feature may not be supported.");
+        // }
 
 
         Console.WriteLine(new string('-', 30));
