@@ -10,6 +10,13 @@ namespace HidUps
         PowerDevicePage = 0x00840000,
         Ups = 0x00840004,
         PowerSupply = 0x00840005,
+
+        // -- Collection Usages --
+        InputCollection = 0x0084001A,
+        OutputCollection = 0x0084001C,
+        BatteryCollection = 0x00840012,
+
+        // -- Measurement Usages --
         Voltage = 0x00840030,
         Frequency = 0x00840032,
         ApparentPower = 0x00840033,
