@@ -36,7 +36,7 @@ namespace HidUps
     {
         private readonly IHidDevice _device;
         private readonly ReportDescriptor _reportDescriptor;
-        private readonly Dictionary<UpsUsage, MappedUsage> _usageMap;
+        private readonly Dictionary<(UpsUsage, UpsUsage), MappedUsage> _usageMap;
 
         /// <summary>
         /// A helper class to store information about a discovered HID usage.
@@ -61,7 +61,7 @@ namespace HidUps
         {
             _device = device;
             _reportDescriptor = device.GetReportDescriptor();
-            _usageMap = new Dictionary<UpsUsage, MappedUsage>();
+            _usageMap = new Dictionary<(UpsUsage, UpsUsage), MappedUsage>();
             ParseAndMapUsages();
         }
 
@@ -100,6 +100,32 @@ namespace HidUps
             }
         }
 
+        private UpsUsage GetCollectionUsage(DataItem dataItem)
+        {
+            var parent = dataItem.ParentItem;
+            while (parent != null)
+            {
+                if (parent is DescriptorCollectionItem collectionItem)
+                {
+                    // We are looking for a physical or logical collection that defines the context.
+                    // We are looking for a physical or logical collection that defines the context.
+                    // Cast the CollectionType enum to int for comparison.
+                    if ((int)collectionItem.CollectionType == 0x00 || // Physical
+                        (int)collectionItem.CollectionType == 0x02 || // Logical
+                        (int)collectionItem.CollectionType == 0x01)   // Application
+                    {
+                        var usage = (UpsUsage)collectionItem.Usages.GetAllValues().FirstOrDefault();
+                        if (usage != 0)
+                        {
+                            return usage;
+                        }
+                    }
+                }
+                parent = parent.ParentItem;
+            }
+            return 0; // Root/no collection
+        }
+
         /// <summary>
         /// Parses the device's report descriptor to map standard UPS usages to their actual reports and data items.
         /// </summary>
@@ -111,9 +137,10 @@ namespace HidUps
 
             foreach (var report in reports)
             {
-                int currentBitOffset = 8; // Start after the 8-bit Report ID
+                int currentBitOffset = _reportDescriptor.ReportsUseID ? 8 : 0; // Start after the Report ID if it exists
                 foreach (var dataItem in report.DataItems)
                 {
+                    var collectionUsage = GetCollectionUsage(dataItem);
                     var usages = dataItem.Usages.GetAllValues().ToArray();
 
                     // Case 1: Variable bitfield (one bit per flag).
@@ -123,9 +150,10 @@ namespace HidUps
                         for (int i = 0; i < count; i++)
                         {
                             var usage = (UpsUsage)usages[i];
-                            if (!_usageMap.ContainsKey(usage))
+                            var key = (collectionUsage, usage);
+                            if (!_usageMap.ContainsKey(key))
                             {
-                                _usageMap[usage] = new MappedUsage(report, dataItem, currentBitOffset, i);
+                                _usageMap[key] = new MappedUsage(report, dataItem, currentBitOffset, i);
                             }
                         }
                     }
@@ -137,9 +165,10 @@ namespace HidUps
                         foreach (var usageValue in usages)
                         {
                             var usage = (UpsUsage)usageValue;
-                            if (!_usageMap.ContainsKey(usage))
+                            var key = (collectionUsage, usage);
+                            if (!_usageMap.ContainsKey(key))
                             {
-                                _usageMap[usage] = new MappedUsage(report, dataItem, currentBitOffset);
+                                _usageMap[key] = new MappedUsage(report, dataItem, currentBitOffset);
                             }
                         }
                     }
@@ -156,22 +185,35 @@ namespace HidUps
         public string SerialNumber => _device.GetSerialNumber();
 
         // --- Status Properties ---
-        public bool? IsOnBattery => GetFlag(UpsUsage.AcPresent) == false;
-        public bool? IsCharging => GetFlag(UpsUsage.Charging);
-        public bool? IsDischarging => GetFlag(UpsUsage.Discharging);
-        public bool? IsFullyCharged => GetFlag(UpsUsage.FullyCharged);
-        public bool? NeedsReplacement => GetFlag(UpsUsage.NeedReplacement);
-        public bool? IsOverloaded => GetFlag(UpsUsage.Overload);
+        // Root / General Status
+        public bool? IsOnBattery => GetFlag(UpsUsage.AcPresent) == false; // AC-Present is often in the root, not a specific collection.
         public bool? IsShutdownImminent => GetFlag(UpsUsage.ShutdownImminent);
 
+        // Battery Status
+        public bool? IsCharging => GetFlag(UpsUsage.BatteryCollection, UpsUsage.Charging);
+        public bool? IsDischarging => GetFlag(UpsUsage.BatteryCollection, UpsUsage.Discharging);
+        public bool? IsFullyCharged => GetFlag(UpsUsage.BatteryCollection, UpsUsage.FullyCharged);
+        public bool? NeedsReplacement => GetFlag(UpsUsage.BatteryCollection, UpsUsage.NeedReplacement);
+
+        // Output Status
+        public bool? IsOverloaded => GetFlag(UpsUsage.OutputCollection, UpsUsage.Overload);
+
+
         // --- Value Properties ---
-        public double? RemainingCapacityPercent => GetPhysicalValue(UpsUsage.RemainingCapacity);
-        public double? RunTimeToEmptySeconds => GetPhysicalValue(UpsUsage.RunTimeToEmpty);
-        public double? PercentLoad => GetPhysicalValue(UpsUsage.PercentLoad);
-        public double? InputVoltage => GetPhysicalValue(UpsUsage.Voltage);
-        public double? InputFrequency => GetPhysicalValue(UpsUsage.Frequency);
-        public double? OutputActivePowerWatts => GetPhysicalValue(UpsUsage.ActivePower);
-        public double? OutputApparentPowerVA => GetPhysicalValue(UpsUsage.ApparentPower);
+        // Battery Values
+        public double? RemainingCapacityPercent => GetPhysicalValue(UpsUsage.BatteryCollection, UpsUsage.RemainingCapacity);
+        public double? RunTimeToEmptySeconds => GetPhysicalValue(UpsUsage.BatteryCollection, UpsUsage.RunTimeToEmpty);
+        public double? BatteryVoltage => GetPhysicalValue(UpsUsage.BatteryCollection, UpsUsage.Voltage);
+
+        // Input Values
+        public double? InputVoltage => GetPhysicalValue(UpsUsage.InputCollection, UpsUsage.Voltage);
+        public double? InputFrequency => GetPhysicalValue(UpsUsage.InputCollection, UpsUsage.Frequency);
+
+        // Output Values
+        public double? OutputVoltage => GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.Voltage);
+        public double? PercentLoad => GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.PercentLoad);
+        public double? OutputActivePowerWatts => GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.ActivePower);
+        public double? OutputApparentPowerVA => GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.ApparentPower);
 
         #endregion
 
@@ -239,9 +281,11 @@ namespace HidUps
             }
         }
 
-        private bool SetValue(UpsUsage usage, int logicalValue)
+        protected bool SetValue(UpsUsage usage, int logicalValue) => SetValue(0, usage, logicalValue);
+
+        protected bool SetValue(UpsUsage collection, UpsUsage usage, int logicalValue)
         {
-            if (!_usageMap.TryGetValue(usage, out var mappedUsage)) { return false; }
+            if (!_usageMap.TryGetValue((collection, usage), out var mappedUsage)) { return false; }
 
             var report = mappedUsage.Report;
             var dataItem = mappedUsage.DataItem;
@@ -284,9 +328,11 @@ namespace HidUps
         }
 
 
-        private double? GetPhysicalValue(UpsUsage usage)
+        private double? GetPhysicalValue(UpsUsage usage) => GetPhysicalValue(0, usage);
+
+        private double? GetPhysicalValue(UpsUsage collection, UpsUsage usage)
         {
-            if (!_usageMap.TryGetValue(usage, out var mappedUsage)) { return null; }
+            if (!_usageMap.TryGetValue((collection, usage), out var mappedUsage)) { return null; }
 
             var buffer = GetReport(mappedUsage);
             if (buffer == null) { return null; }
@@ -302,9 +348,11 @@ namespace HidUps
             return DataConvert.PhysicalFromLogical(dataItem, logicalValue);
         }
 
-        private bool? GetFlag(UpsUsage usage)
+        private bool? GetFlag(UpsUsage usage) => GetFlag(0, usage);
+
+        private bool? GetFlag(UpsUsage collection, UpsUsage usage)
         {
-            if (!_usageMap.TryGetValue(usage, out var mappedUsage)) { return null; }
+            if (!_usageMap.TryGetValue((collection, usage), out var mappedUsage)) { return null; }
 
             var buffer = GetReport(mappedUsage);
             if (buffer == null) { return null; }

@@ -38,6 +38,9 @@ namespace HidUps
         FullyCharged = 0x00850046,
         NeedReplacement = 0x0085004B,
         AcPresent = 0x008500D0,
+
+        // -- Control Usages --
+        AudibleAlarmControl = 0x008400FE,
     }
 }
 
