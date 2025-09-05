@@ -212,212 +212,52 @@ namespace HidUps
         public string DevicePath => _device.DevicePath;
         public string Manufacturer => _device.GetManufacturer();
         public string ProductName => _device.GetProductName();
-        public string SerialNumber => _device.GetSerialNumber();
+        // This one doesn't seem to want to work?
+        // public string SerialNumber => _device.GetSerialNumber();
 
         // --- Status Properties ---
-        // Try multiple possible locations for these values based on Tripplite protocol
-        
-        // AC Present can be in root or PowerSummary's PresentStatus
         public bool? IsOnBattery
         {
             get
             {
-                // First try the standalone ACPresent flag
                 var acPresent = GetFlag(UpsUsage.AcPresent);
                 if (acPresent.HasValue) return !acPresent.Value;
-                
-                // Try in PowerSummary collection
-                acPresent = GetFlag(UpsUsage.PowerSummaryCollection, UpsUsage.AcPresent);
-                if (acPresent.HasValue) return !acPresent.Value;
-                
                 return null;
             }
         }
         
-        public bool? IsShutdownImminent
-        {
-            get
-            {
-                // Try PowerSummary first (Tripplite location)
-                var result = GetFlag(UpsUsage.PowerSummaryCollection, UpsUsage.ShutdownImminent);
-                if (result.HasValue) return result;
-                return GetFlag(UpsUsage.ShutdownImminent);
-            }
-        }
-
+        public bool? IsShutdownImminent => GetFlag(UpsUsage.ShutdownImminent);
         // Battery Status - Try both BatterySystem and PowerSummary collections
-        public bool? IsCharging
-        {
-            get
-            {
-                // Try BatterySystem collection first
-                var result = GetFlag(UpsUsage.BatterySystemCollection, UpsUsage.Charging);
-                if (result.HasValue) return result;
-                
-                // Try PowerSummary (Tripplite PresentStatus)
-                result = GetFlag(UpsUsage.PowerSummaryCollection, UpsUsage.Charging);
-                if (result.HasValue) return result;
-                
-                // Try generic Battery collection
-                return GetFlag(UpsUsage.BatteryCollection, UpsUsage.Charging);
-            }
-        }
+        public bool? IsCharging => GetFlag(UpsUsage.Charging);
         
-        public bool? IsDischarging
-        {
-            get
-            {
-                var result = GetFlag(UpsUsage.BatterySystemCollection, UpsUsage.Discharging);
-                if (result.HasValue) return result;
-                
-                result = GetFlag(UpsUsage.PowerSummaryCollection, UpsUsage.Discharging);
-                if (result.HasValue) return result;
-                
-                return GetFlag(UpsUsage.BatteryCollection, UpsUsage.Discharging);
-            }
-        }
+        public bool? IsDischarging => GetFlag(UpsUsage.Discharging);
         
-        public bool? IsFullyCharged
-        {
-            get
-            {
-                var result = GetFlag(UpsUsage.BatterySystemCollection, UpsUsage.FullyCharged);
-                if (result.HasValue) return result;
-                
-                result = GetFlag(UpsUsage.PowerSummaryCollection, UpsUsage.FullyCharged);
-                if (result.HasValue) return result;
-                
-                return GetFlag(UpsUsage.BatteryCollection, UpsUsage.FullyCharged);
-            }
-        }
+        public bool? IsFullyCharged => GetFlag(UpsUsage.FullyCharged);
         
-        public bool? NeedsReplacement
-        {
-            get
-            {
-                var result = GetFlag(UpsUsage.BatterySystemCollection, UpsUsage.NeedReplacement);
-                if (result.HasValue) return result;
-                
-                result = GetFlag(UpsUsage.PowerSummaryCollection, UpsUsage.NeedReplacement);
-                if (result.HasValue) return result;
-                
-                return GetFlag(UpsUsage.BatteryCollection, UpsUsage.NeedReplacement);
-            }
-        }
+        public bool? NeedsReplacement => GetFlag(UpsUsage.NeedReplacement);
 
         // Output Status - Try PowerConverter collection (Tripplite location)
-        public bool? IsOverloaded
-        {
-            get
-            {
-                var result = GetFlag(UpsUsage.PowerConverterCollection, UpsUsage.Overload);
-                if (result.HasValue) return result;
-                
-                return GetFlag(UpsUsage.OutputCollection, UpsUsage.Overload);
-            }
-        }
+        public bool? IsOverloaded => GetFlag(UpsUsage.PowerConverterCollection, UpsUsage.Overload);
 
         // --- Value Properties ---
         // Battery Values - Try multiple collections
-        public double? RemainingCapacityPercent
-        {
-            get
-            {
-                // Try PowerSummary first (Tripplite location)
-                var result = GetPhysicalValue(UpsUsage.PowerSummaryCollection, UpsUsage.RemainingCapacity);
-                if (result.HasValue) return result;
-                
-                // Try BatterySystem
-                result = GetPhysicalValue(UpsUsage.BatterySystemCollection, UpsUsage.RemainingCapacity);
-                if (result.HasValue) return result;
-                
-                return GetPhysicalValue(UpsUsage.BatteryCollection, UpsUsage.RemainingCapacity);
-            }
-        }
+        public double? RemainingCapacityPercent => GetPhysicalValue(UpsUsage.RemainingCapacity);
         
-        public double? RunTimeToEmptySeconds
-        {
-            get
-            {
-                // Try PowerSummary first (Tripplite location)
-                var result = GetPhysicalValue(UpsUsage.PowerSummaryCollection, UpsUsage.RunTimeToEmpty);
-                if (result.HasValue) return result;
-                
-                // Try BatterySystem
-                result = GetPhysicalValue(UpsUsage.BatterySystemCollection, UpsUsage.RunTimeToEmpty);
-                if (result.HasValue) return result;
-                
-                return GetPhysicalValue(UpsUsage.BatteryCollection, UpsUsage.RunTimeToEmpty);
-            }
-        }
+        public double? RunTimeToEmptySeconds => GetPhysicalValue(UpsUsage.RunTimeToEmpty);
         
-        public double? BatteryVoltage
-        {
-            get
-            {
-                var result = GetPhysicalValue(UpsUsage.BatterySystemCollection, UpsUsage.Voltage);
-                if (result.HasValue) return result;
-                
-                return GetPhysicalValue(UpsUsage.BatteryCollection, UpsUsage.Voltage);
-            }
-        }
+        public double? BatteryVoltage => GetPhysicalValue(UpsUsage.BatterySystemCollection, UpsUsage.Voltage);
 
         // Input Values - Try PowerConverter collection first (Tripplite)
-        public double? InputVoltage
-        {
-            get
-            {
-                var result = GetPhysicalValue(UpsUsage.PowerConverterCollection, UpsUsage.Voltage);
-                if (result.HasValue) return result;
-                
-                result = GetPhysicalValue(UpsUsage.InputCollection, UpsUsage.Voltage);
-                if (result.HasValue) return result;
-                
-                // Try PowerSummary as well
-                return GetPhysicalValue(UpsUsage.PowerSummaryCollection, UpsUsage.Voltage);
-            }
-        }
+        public double? InputVoltage => GetPhysicalValue(UpsUsage.PowerSummaryCollection, UpsUsage.Voltage);
         
-        public double? InputFrequency
-        {
-            get
-            {
-                var result = GetPhysicalValue(UpsUsage.PowerConverterCollection, UpsUsage.Frequency);
-                if (result.HasValue) return result;
-                
-                return GetPhysicalValue(UpsUsage.InputCollection, UpsUsage.Frequency);
-            }
-        }
+        public double? InputFrequency => GetPhysicalValue(UpsUsage.PowerConverterCollection, UpsUsage.Frequency);
 
         // Output Values
         public double? OutputVoltage => GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.Voltage);
         
-        public double? PercentLoad
-        {
-            get
-            {
-                // Try OutletSystem first (Tripplite location)
-                var result = GetPhysicalValue(UpsUsage.OutletSystemCollection, UpsUsage.PercentLoad);
-                if (result.HasValue) return result;
-                
-                return GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.PercentLoad);
-            }
-        }
+        public double? PercentLoad => GetPhysicalValue(UpsUsage.OutletSystemCollection, UpsUsage.PercentLoad);
         
-        public double? OutputActivePowerWatts
-        {
-            get
-            {
-                // Try OutletSystem first (Tripplite)
-                var result = GetPhysicalValue(UpsUsage.OutletSystemCollection, UpsUsage.ActivePower);
-                if (result.HasValue && result.Value != 0xFFFF) return result;
-                
-                result = GetPhysicalValue(UpsUsage.PowerConverterCollection, UpsUsage.ActivePower);
-                if (result.HasValue && result.Value != 0xFFFF) return result;
-                
-                return GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.ActivePower);
-            }
-        }
+        public double? OutputActivePowerWatts => GetPhysicalValue(UpsUsage.PowerConverterCollection, UpsUsage.ActivePower);
         
         public double? OutputApparentPowerVA => GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.ApparentPower);
 
@@ -466,7 +306,7 @@ namespace HidUps
                     Console.WriteLine($"    ... and {reportGroup.Count() - 5} more");
             }
         }
-
+        
         #endregion
 
         #region Public Methods
