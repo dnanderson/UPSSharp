@@ -34,7 +34,7 @@ namespace HidUps
     /// </summary>
     public class GenericUps
     {
-        private readonly HidDevice _device;
+        private readonly IHidDevice _device;
         private readonly ReportDescriptor _reportDescriptor;
         private readonly Dictionary<UpsUsage, MappedUsage> _usageMap;
 
@@ -57,7 +57,7 @@ namespace HidUps
             }
         }
 
-        private GenericUps(HidDevice device)
+        internal GenericUps(IHidDevice device)
         {
             _device = device;
             _reportDescriptor = device.GetReportDescriptor();
@@ -96,7 +96,7 @@ namespace HidUps
 
             foreach (var device in devices)
             {
-                yield return new GenericUps(device);
+                yield return new GenericUps(new HidDeviceWrapper(device));
             }
         }
 
@@ -209,7 +209,7 @@ namespace HidUps
                 return null;
             }
 
-            if (!_device.TryOpen(out var stream)) { return null; }
+            if (!_device.TryOpen(out IHidStream stream)) { return null; }
 
             using (stream)
             {
@@ -253,7 +253,7 @@ namespace HidUps
                 return false;
             }
 
-            if (!_device.TryOpen(out var stream)) { return false; }
+            if (!_device.TryOpen(out IHidStream stream)) { return false; }
 
             using (stream)
             {
