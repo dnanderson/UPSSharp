@@ -169,7 +169,8 @@ if (upsDevices.Any())
             Console.WriteLine($"Error analyzing device: {ex.Message}");
         }
 
-        Console.WriteLine("\nStatus:");
+        // Add mapping dump for the GenericUps
+        ups.DumpMappings();
         // --- Value Properties ---
         Console.WriteLine($"  Input Voltage: {ups.InputVoltage?.ToString("F1") ?? "N/A"} V");
         Console.WriteLine($"  Input Frequency: {ups.InputFrequency?.ToString("F1") ?? "N/A"} Hz");

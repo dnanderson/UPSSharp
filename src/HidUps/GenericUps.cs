@@ -421,7 +421,51 @@ namespace HidUps
         
         public double? OutputApparentPowerVA => GetPhysicalValue(UpsUsage.OutputCollection, UpsUsage.ApparentPower);
 
-        #endregion
+        // Add a public method for debugging
+        public void DumpMappings()
+        {
+            Console.WriteLine("\n=== Usage Mappings ===");
+            
+            // Check for specific important usages
+            var checkUsages = new[] {
+                (UpsUsage.PowerSummaryCollection, UpsUsage.RemainingCapacity, "PowerSummary/RemainingCapacity"),
+                ((UpsUsage)0, UpsUsage.RemainingCapacity, "Root/RemainingCapacity"),
+                (UpsUsage.BatterySystemCollection, UpsUsage.RemainingCapacity, "BatterySystem/RemainingCapacity"),
+                (UpsUsage.PowerSummaryCollection, UpsUsage.RunTimeToEmpty, "PowerSummary/RunTimeToEmpty"),
+                ((UpsUsage)0, UpsUsage.RunTimeToEmpty, "Root/RunTimeToEmpty"),
+                (UpsUsage.PowerSummaryCollection, UpsUsage.PresentStatus, "PowerSummary/PresentStatus"),
+                ((UpsUsage)0, UpsUsage.PresentStatus, "Root/PresentStatus"),
+                (UpsUsage.PowerSummaryCollection, UpsUsage.FullyCharged, "PowerSummary/FullyCharged"),
+                ((UpsUsage)0, UpsUsage.FullyCharged, "Root/FullyCharged"),
+            };
+            
+            foreach (var (collection, usage, name) in checkUsages)
+            {
+                if (_usageMap.TryGetValue((collection, usage), out var mapped))
+                {
+                    Console.WriteLine($"  ✓ {name}: Report {mapped.Report.ReportID}, Type: {mapped.Report.ReportType}, BitOffset: {mapped.DataItemBitOffset}, BitIndex: {mapped.BitIndex}");
+                }
+                else
+                {
+                    Console.WriteLine($"  ✗ {name}: NOT MAPPED");
+                }
+            }
+            
+            Console.WriteLine("\nAll mapped usages by Report ID:");
+            var byReport = _usageMap.GroupBy(kvp => kvp.Value.Report.ReportID).OrderBy(g => g.Key);
+            foreach (var reportGroup in byReport)
+            {
+                Console.WriteLine($"  Report {reportGroup.Key}:");
+                foreach (var kvp in reportGroup.Take(5)) // Limit output
+                {
+                    var collectionName = kvp.Key.Item1 == 0 ? "Root" : kvp.Key.Item1.ToString();
+                    var usageName = kvp.Key.Item2.ToString();
+                    Console.WriteLine($"    {collectionName}/{usageName}");
+                }
+                if (reportGroup.Count() > 5)
+                    Console.WriteLine($"    ... and {reportGroup.Count() - 5} more");
+            }
+        }
 
         #region Public Methods
 
